@@ -1,0 +1,10 @@
+name = Mail Editor
+description = Allows editing of all mails.
+package = Mail
+core = 6.x
+; Information added by drupal.org packaging script on 2013-10-01
+version = "6.x-1.2+4-dev"
+core = "6.x"
+project = "mail_edit"
+datestamp = "1380585769"
+

@@ -1,0 +1,173 @@
+<?php  
+
+/**
+ * Implementation of hook_perm().
+ */
+function search_restrict_perm() {
+  return array('administer search_restrict');
+}
+ 
+/**
+ * Implementation of hook_form_FORM_alter().
+ */
+function search_restrict_form_node_type_form_alter(&$form, &$form_state) {
+  search_restrict_content_type_form($form);
+}
+
+/**
+ * Alter content type forms to include search restrict options.
+ */
+function search_restrict_content_type_form(&$form) {
+  $roles = user_roles();
+  ksort($roles);
+	$content_type = $form['#node_type']->type;
+  $restrictions = variable_get('search_restrict_type_'. $content_type, array());
+	
+  $form['search_restrict'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Search Restrict'),
+    '#description' => t('Select which user roles can search for this content type. By default all roles can search.'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#access' => user_access('administer search_restrict'),
+  );
+  
+  $form['search_restrict']['search_restrict_roles'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Roles'),
+    '#description' => t('If all checkboxes are unselected then everyone can search.'),
+    '#options' => $roles,
+    '#default_value' => $restrictions,
+  );
+  // Use custom submit function to avoid a query at time of search to get the
+  // list of content types. 
+  // Add to front of array so that we can clear search_restrict_roles_<content_type>. 
+  array_unshift($form['#submit'], 'search_restrict_content_type_form_submit');
+}
+
+/**
+ *  use custom submit function to avoid a query at time of search to get the list of content types
+ */
+function search_restrict_content_type_form_submit($form, &$form_state) {
+	$roles = $form_state['values']['search_restrict_roles'];
+	$type = $form_state['values']['type'];
+  variable_set('search_restrict_type_'. $type, $roles);
+  unset($form_state['values']['search_restrict_roles']);
+} 
+
+/**
+ * Implementation of hook_db_rewrite_sql().
+ */
+function search_restrict_db_rewrite_sql($query, $primary_table, $primary_field, $args) {
+  global $user;
+  // User 1 can search everything.
+  if ($user->uid == 1) {
+    return;
+  }
+
+  $user_roles = $user->roles;
+  $excluded_types = array();
+
+  if ($query == '' && $primary_table == 'n' && $primary_field == 'nid' && empty($args)) {
+
+		$types = node_get_types();
+
+    foreach ($types as $type => $type_info) {
+      $roles = variable_get('search_restrict_type_'. $type, array()); 
+      $access = FALSE;
+      $access_false = array();
+      $access_true = array();
+      
+      // list included and excluded roles
+      foreach ($roles as $role_id => $selected) {
+        if (empty($selected)) { 
+          $access_false[] = $role_id;
+        }
+        else {
+          $access_true[] = $role_id;  
+        } 
+      }
+    
+      // If no roles or all roles have been selected then everyone has access
+      // skip this content type.
+      if (!empty($access_true) && !empty($access_false)) {
+        // If user has role in include list skip this content type.
+        foreach ($access_true as $role_selected) {
+          if (!empty($user_roles[$role_selected])) $access = TRUE;
+        } 
+      
+        // User doesn't have any roles that are allowed to search this content type.
+        if (empty($access)) $excluded_types[] =  $type; 
+      }
+    }
+
+    if (!empty($excluded_types)) {
+      $where = " n.type NOT IN ('". join("','", $excluded_types) ."') ";
+
+      return array('where' => $where);
+    }
+  }
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function search_restrict_form_alter(&$form, $form_state, $form_id) {
+  switch ($form_id) {
+    case 'search_form':
+      $form['#after_build'][] = '_search_restrict_advanced_form';
+      break;
+  }
+}
+
+/**
+ * Remove restricted content types from the advanced search form. We use
+ * after_build due to the method the node module uses to add the advanced
+ * search options. 
+ */
+function _search_restrict_advanced_form($form_element, &$form_state) {
+  global $user;
+
+  if ($user->uid == 1) {
+    return $form_element;
+  }
+
+	$types = node_get_types(); 
+
+  $role_ids = array_keys($user->roles);
+
+  foreach ($types as $type => $type_info) {
+    $access = FALSE;
+    $roles = variable_get('search_restrict_type_'. $type, array());
+
+		if (empty($roles)) {
+		  $access = TRUE;	
+		}
+		else {
+			
+	    foreach ($roles as $role_id => $selected) {
+	      if (!empty($selected) && in_array($role_id, $role_ids)) {
+	        $access = TRUE;
+	        break;
+	      }
+	    }
+		}
+
+    if (!$access) {
+      unset($form_element['advanced']['type']['#options'][$type]);
+      unset($form_element['advanced']['type'][$type]);
+    }
+  }
+
+  return $form_element;
+}
+
+/**
+ * Implementation of hook_node_type
+ */
+function search_restrict_node_type($op, $info) {
+
+  if ($op == 'delete') {
+    variable_del('search_restrict_type_'. $info->type);
+  }
+}

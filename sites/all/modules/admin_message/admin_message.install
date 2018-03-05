@@ -1,0 +1,91 @@
+<?php
+/**
+ * @file
+ * Database Schema for admin_menu.module
+ */
+
+/**
+ * Implementation of hook_schema().
+ */
+function admin_message_schema() {
+  $schema['admin_message'] = array(
+    'description' => t('TODO'),
+    'fields' => array(
+      'nid' => array(
+        'description' => t('TODO'),
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'keep_new' => array(
+        'description' => t('TODO'),
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'php_visibility' => array(
+        'description' => t('TODO'),
+        'type' => 'text',
+        'size' => 'small',
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+  $schema['admin_message_close'] = array(
+    'description' => t('TODO'),
+    'fields' => array(
+      'nid' => array(
+        'description' => t('TODO'),
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'uid' => array(
+        'description' => t('TODO'),
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('nid, uid'),
+  );
+  return $schema;
+}
+
+/**
+ * Implementation of hook_install().
+ */
+function admin_message_install() {
+  drupal_install_schema('admin_message');
+
+  // Set to published and sticky as default for content type.
+  variable_set('node_options_admin_message' , array('status', 'sticky'));
+  // Disable comments for this content type.
+  variable_set('comment_admin_message', '0');
+
+  drupal_set_message(t('<em>Admin message</em> was installed. Enable the block "Admin messages" to display messages to users.'));
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function admin_message_uninstall() {
+  drupal_uninstall_schema('admin_message');
+
+}
+
+/**
+ * Changes small ints to int(10) for nids and uids
+ */ 
+function admin_message_update_6001() {
+  $results = array();
+  $results[] = update_sql('ALTER TABLE admin_message CHANGE COLUMN nid nid INT(10) UNSIGNED NOT NULL DEFAULT 0');
+  $results[] = update_sql('ALTER TABLE admin_message_close CHANGE COLUMN nid nid INT(10) UNSIGNED NOT NULL DEFAULT 0');
+  $results[] = update_sql('ALTER TABLE admin_message_close CHANGE COLUMN uid uid INT(10) UNSIGNED NOT NULL DEFAULT 0');
+  return $results;
+}

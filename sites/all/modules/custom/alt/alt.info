@@ -1,0 +1,5 @@
+; $Id: alt.info,v 1.1 2011/01/21 22:16:51 rdahiya Exp $
+name = alt
+description = A module that customizes the academic learners toolkit site
+core = 6.x
+package = Custom Modules

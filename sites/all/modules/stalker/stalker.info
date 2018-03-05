@@ -1,0 +1,5 @@
+; $Id$
+name = Stalker
+description = A module that tracks users views of profile pages.
+core = 6.x
+package = Renae

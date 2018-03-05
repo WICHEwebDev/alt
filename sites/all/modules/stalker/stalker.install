@@ -1,0 +1,103 @@
+<?php
+//$ID$
+
+/**
+ * @file
+ * Install file for Stalker module
+ */
+
+
+/**
+ * Implementation of hook_schema()
+ * 
+ * 
+ * @return unknown_type
+ */
+function stalker_schema() {
+	$schema = array();
+	$schema['stalker'] = array(
+  'description' => t('Contains counter information for profile views'),
+  'fields' => array(
+    'stalker_uid' => array(
+      'description' => t('The uid of the person viewing the profile'),
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'profile_uid' => array(
+      'description' => t('The uid of the profile being viewed!'),
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'view_count' => array(
+      'description' => t('Count of number of views'),
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'last_stalked' => array(
+      'description' => t('The Last time the user stalked.'),
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+   ),
+  'primary key' => array('stalker_uid', 'profile_uid'),
+);
+	
+	
+	
+	return $schema;
+	
+}
+
+/**
+ * Implementation of hook_install
+ * @return unknown_type
+ */
+function stalker_install() {
+	
+	drupal_install_schema('stalker');
+}
+
+
+/**
+ * Implementation of hook_uninstall
+ * @return unknown_type
+ */
+function stalker_uninstall() {
+	drupal_uninstall_schema('stalker');
+}
+
+
+/**
+ * implementation of hook_update
+ * @return unknown_type
+ */
+function stalker_update_6001() {
+	//results of each statement in our update function
+	$ret = array();
+	$spec = array(
+      'description' => t('The Last time the user stalked.'),
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    );
+	
+	//use schema api function to encapsulate table alter
+    db_add_field($ret, 'stalker', 'last_stalked', $spec);
+    
+    //example of how to correct outdated or broken data from a previous versions of a module.
+    $ret[] = update_sql("DELETE FROM {stalker} WHERE view_count < 0");
+    
+	
+	return $ret;
+	
+}
+

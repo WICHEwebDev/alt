@@ -1,0 +1,10 @@
+
+name = Admin message
+description = Display messages that can be individually closed by logged in users.
+core = 6.x
+; Information added by drupal.org packaging script on 2013-09-30
+version = "6.x-1.0+1-dev"
+core = "6.x"
+project = "admin_message"
+datestamp = "1380552859"
+

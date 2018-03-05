@@ -1,0 +1,48 @@
+<?php
+
+/** 
+  * Implementation of hook_install(). 
+  */
+function search_restrict_install() {
+  // Set a low weight so the module is called before node module.
+  db_query("UPDATE {system} SET weight = -10 WHERE name = 'search_restrict'");
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function search_restrict_uninstall() {
+  $types = node_get_types();
+	
+  foreach ($types as $type => $type_info) {
+    variable_del('search_restrict_type_'. $type);
+	}
+	
+  variable_del('search_restrict_content_type');
+}
+
+/**
+* Remove extra variables set by the content type form.
+*/
+function search_restrict_update_6001() {
+  $ret = array();
+  $ret[] = update_sql("DELETE FROM {variable} WHERE NAME LIKE 'search_restrict_roles_%'");
+  return $ret;
+}
+
+/**
+* Convert content type settings to new format.
+*/
+function search_restrict_update_6002() {
+  $ret = array();
+	$types = variable_get('search_restrict_content_type', array());
+	
+	foreach($types as $type => $roles) {
+	  variable_set('search_restrict_type_'. $type, $roles);	
+	}
+
+  variable_del('search_restrict_content_type');
+  return $ret;
+}
+
+

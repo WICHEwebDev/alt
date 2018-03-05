@@ -1,0 +1,668 @@
+<?php
+// $Id: alt.module,v 1.2 2011/02/15 15:42:10 rdahiya Exp $
+//no closing php marker because we have no output
+
+/**
+ * @file
+ * Main module file for alt module.
+ */
+
+
+/**
+ * implementation of hook_perm
+ * @return unknown_type
+ */
+function alt_perm() {
+  return array(
+    'view tool reviews',
+    'set tool status',
+    'view unpublished tools',
+  );
+		
+}
+
+
+
+/**
+ * Implementation of hook_form_alter
+ * Set the page title to Submit a Tool when adding and editing a tool.
+ * @param $form
+ * @param $form_state
+ * @return unknown_type
+ */
+function alt_form_tool_node_form_alter(&$form, &$form_state) {
+	//drupal_set_message('in alt_form_tool_node_form_alter');
+	
+//	'#submit' => 'node_form_submit',
+	
+	/*add a second submit button to the page*/
+	$form['submit-top'] = array(
+    '#type' => 'submit',
+	'#executes_submit_callback' => TRUE,
+    '#value' => 'Save',
+	'#access' => TRUE,
+	'#weight' => '-100',
+	'#attributes' => array ('class' => 'weighted-tool-submit-top'),
+	);
+	
+	//change the page title
+	drupal_set_title("Suggest a Tool");
+}
+
+
+/**
+ * Implementation of hook_form_alter
+ * @param $form
+ * @param $form_state
+ * @return unknown_type
+ */
+function alt_form_comment_form_alter(&$form, &$form_state){
+	//dsm('start comment form alter');
+	//dsm($form_state);
+	$nid = $form['nid']['#value'];
+	if ($nid > 0){
+		$node = node_load($nid);
+		//dsm($node);
+		if ($node->type == 'tool'){
+			drupal_set_title('Tool Review');
+		}	
+	}
+	
+	
+}
+
+
+
+/**
+ * Implementation of hook_field_access().
+ *
+ * @see content_access().
+ */
+function alt_field_access($op, $field, $account, $node = NULL) {
+if ($node->type == 'tool'){	
+  switch ($op) {
+    case 'edit':
+    	// only show the tool review status to those with correct perms.
+		if ($field['field_name'] == 'field_tool_review_status' && !user_access('set tool status')){
+			return false;
+		}else {
+    		//return user_access($op .' '. $field['field_name'], $account);
+      		return true;
+		}
+  }
+}
+  return TRUE;
+}
+
+
+/**
+ * Implementation of hook_form_alter
+ * 
+ * @param $form
+ * @param $form_state
+ * @return unknown_type
+ */
+function alt_form_tool_review_node_form_alter(&$form, &$form_state) {
+	//drupal_set_message('in alt form alter');
+	global $user;
+
+	// Hide the tool review title field and default it's value to Tool Review
+	$form['title']['#type'] = 'hidden';
+	$form['title']['#value'] = 'Tool Review';
+
+	//stay on current page
+	//$this_page = $_SERVER['REQUEST_URI'];
+	//dsm($this_page);
+	//$form_state['redirect'] = $this_page;	
+	//dsm($form_state);
+	
+	// In order to see cck fields on the form to manipulate them, invoke this
+	// callback function. The cck fields are not available until the after_build phase of
+	// form construction. See discussion at http://drupal.org/node/726282.
+	$form['#after_build'][] = 'alt_tool_review_after_build';
+	
+}
+
+
+/**
+ * Implementation of #after_build phase of form callback.
+ * Sets the tool_review's fkey value to point to it's associated tool node.
+ * 
+ * @param $form
+ * @param $form_state
+ * @return unknown_type
+ */
+function alt_tool_review_after_build(&$form, &$form_state) {
+		
+	global $user;
+	
+	//dsm("in after build");
+	//dsm($form);
+	
+	
+	//read the tool nid 
+	// from the form first (edit tool called from admin menu), 
+	// then arg(1) next (create or edit tool call from tool detail page)
+	$tool_nid = $form['field_tool_review_tool_nid'][0]['value']['#value'];
+	//drupal_set_message($tool_nid);
+		
+	if (arg(1) && is_numeric(arg(1)) && !$tool_nid){
+		$tool_nid = arg(1);		
+	}
+	//drupal_set_message($tool_nid);
+	
+	//then Hide tool nid form field and set tool_nid if we have one, otherwise, show the input field.
+	
+	if ($tool_nid > 0){	
+		//hide the field
+		$form['field_tool_review_tool_nid'][0]['value']['#type'] = 'hidden';
+		$form['field_tool_review_tool_noderef']['#type'] = 'hidden';
+	//$form['field_tool_node_reference']['nid']['nid']['#type'] = 'hidden';
+		
+		//set the fields value
+  		$form['field_tool_review_tool_nid'][0]['value']['#value'] = $tool_nid;
+  		$form['field_tool_review_tool_nid'][0]['#value']['value'] = $tool_nid;
+		//drupal_set_message( implode(array_keys($form['field_tool_review_tool_noderef']['nid']['nid'])) );
+		//var_dump($form['field_tool_review_tool_noderef']['nid']['nid']);
+		if (empty($form['field_tool_review_tool_noderef']['nid']['nid']['#default_value'])) {
+			//Add new values to node reference array if they don't exist already - existing ones are not overwritten.
+			$form['field_tool_review_tool_noderef']['nid']['nid']['#value'] = $tool_nid;
+			$form['field_tool_review_tool_noderef']['nid']['nid']['#default_value'] = $tool_nid;
+  		} //else drupal_set_message('not empty');	
+	}
+		
+  	return $form;
+}
+
+
+
+/**
+ * Implementation of hook_nodeapi
+ * 1. Hides tool_review nodes from all users but those with view tool reviews.
+ * 2. Hides tools that do not have Reviewed - Publish status.
+ * 
+ * @param $node
+ * @param $op
+ * @param $a3
+ * @param $a4
+ * @return unknown_type
+ */
+function alt_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+	
+  switch ($op) {
+    case 'insert':
+    	//dsm('insert');
+    	//dsm($node);
+    break;
+    	
+    case 'update':
+    	//dsm('update');
+    	//dsm($node);
+    break;
+    case 'view':
+    	//dsm('view');
+    	//if ($node->type == 'tool'){
+    	//dsm($node);
+    	//}
+    	if ($node->type == 'tool_review' && (!user_access('view tool reviews')) ) {
+        	drupal_set_message(t('You do not have access to view this content.'));
+        	//clear the nodes content so it is not displayed.
+        	$node->content = array();
+    	}
+    	if ($node->type == 'tool') {
+    		//dsm($node);
+    		$tool_is_published = ($node->field_tool_review_status[0]['value'] == 'Reviewed - Publish') ? true : false;
+    		
+    		//if the tool is published or the user can view unpublished tools , show the tool
+    		//otherwise, do not show the tool.
+    		if ( $tool_is_published || ( (!$tool_is_published) && user_access('view unpublished tools'))  ){
+    			//show the link if we have ranking comments
+    			//dsm($node);
+    		    if ($node->comment_count > 0){
+					$content = l($node->comment_count, 'toolRankings/'. $node->nid);
+				
+					//Here is our first peek at a "renderable array".
+					//content is s structured array of content we want to display that
+					//is passed around for other modules to order, change or manipulate the way
+					//it is going to be viewed. 
+					$node->content['alt_tool_rankings'] = array (
+						'#type' => 'item', //the template being used
+						'#title' => t('Reviews'), //title value passed into template
+						'#value' => $content, //value passed to template
+						'#weight' => 4, //where to display on page
+					);
+    		    }
+    		}
+    		else {
+    			//show a message to let users know the tool is no longer published or is in review.
+        		drupal_set_message(t( $node->title . ' is currently in review or is no longer available.'));
+    			//clear the node data so it is not displayed
+        		$node->content = array();
+        		//dsm($node);
+        		//drupal_goto('/toolsByCategory');
+        		
+    		}
+    	}
+    	
+    break;
+  }
+}
+
+/**
+ * Internal module helper function to read tool_review record entered by user from the db.
+ * This function is used by the tool review form to display the existing tool review record in the db
+ * if the user has entered one on the tool review form.
+ * 
+ * @param $nid tool node id
+ * @param $uid user id of person how entered a tool review for the tool node id
+ * @return unknown_type
+ */
+ /*
+function alt_get_tool_review($nid=0, $uid=0) {
+	
+	$sql = "SELECT c.vid, c.nid, c.field_tool_review_options_value, c.field_tool_review_comment_value, c.field_tool_review_tool_nid_value " .
+	"FROM content_type_tool_review c " .
+	"inner join node n on c.nid = n.nid " .
+	"where c.field_tool_review_tool_nid_value = %d and n.uid = %d and n.type = 'tool_review'";
+		
+	//dsm($sql);
+	$result = db_query($sql,$nid,$uid);
+	$data = db_fetch_object($result);
+
+	return $data;
+
+}*/
+
+/**
+ * For the current tool referenced at arg(1), see if the current user has
+ * added a tool_review record. This is slightly different from alt_get_tool_review($nid,$uid) - 
+ * it finds out the user and nid itself.
+ * 
+ * @return object Object with tool_review nid set.
+ */
+function alt_get_tool_review() {
+	
+	global $user;
+	$uid = $user->uid;
+	$data = null;
+	
+	$nid = 0;
+	if (arg(1) && is_numeric(arg(1)) ){
+		$nid = arg(1);
+	}
+	
+	$sql = "SELECT c.nid " .
+	"FROM content_type_tool_review c " .
+	"inner join node n on c.nid = n.nid " .
+	"where c.field_tool_review_tool_noderef_nid = %d and n.uid = %d and n.type = 'tool_review'";
+	if ($nid && $uid) {	
+	//dsm($sql);
+		$result = db_query($sql,$nid,$uid);
+		$data = db_fetch_object($result);
+	}
+	
+	return $data;
+}
+
+
+
+/**
+ * 
+ * implementation of hook_menue
+ * When invoke-all is called, this function is executed and our contents are returned.
+ * and cached.
+ * 
+ * @return unknown_type
+ */
+function alt_menu() {
+	$items = array();
+	
+	//submit a tool page
+	//key is the page url
+	$items['toolSubmit'] = array(
+		'title'=> 'Suggest a Tool',
+		'description' => 'Suggest a tool page',
+		'page callback' => 'alt_tool_add_request',
+		'access callback' => TRUE, //true will give access to everyone
+		'type' => MENU_NORMAL_ITEM,
+	);
+	
+	//Replaced the toolsByCategory with a view.
+	//tool list page
+	//$items['toolsByCategory'] = array(
+    	//'title' => 'Tool List',
+    	//'page callback' => 'alt_tools_by_category',
+    	//'access callback' => TRUE,
+	//	'file' => 'alt.pages.inc',
+	//
+  	//);
+  	
+	$items['toolEvaluations'] = array(
+    	'title' => 'Committee Evaluations Summary',
+    	'page callback' => 'alt_tool_evaluations',
+    	'access callback' => TRUE,
+		'file' => 'alt.pages.inc',
+	
+	);
+	
+	
+  	/* using a view at this time. If we need to show comment ranking, add this back.
+  	 * ranking is dynamically added when hook_comment is invoked on all modules.
+  	 * because we are displaying them with a view, the hook is not called so the fivestar data is not shown.
+  	 * So we have to manually build the comment page to make that happen.
+  	 
+  	/* for some reason, I cannot add arg(1) as a parameter to this menu item.
+  	 * I tried showRankings/%nid and this failed.
+  	 
+	$items['showRankings'] = array(
+		'title' => 'Tool Rankings',
+		'page callback' => 'alt_rankings_page',
+		//'page arguments'=> array(1),
+    	'access callback' => TRUE, //everyone has access
+		'file' => 'alt.pages.inc',
+	);
+	dsm('in alt_menu');
+  	dsm($items);
+  	*/
+	return $items;
+}
+
+
+/**
+ * Menu Callback
+ * alt_tool_add_request callback that shows the add tool page or the toolSubmit page when the user is not logged in.
+ * @return unknown_type
+ */
+function alt_tool_add_request() {
+	global $user;
+	
+	//perm check passes
+	//if (true) {	
+	if (isset($user) && user_access('create tool content') ){
+		drupal_goto('node/add/tool');
+	}
+	
+	//perm check fails
+	drupal_goto('about/addingTools');
+	
+}
+
+
+/**
+ * Returns a list of tools by category to display on a page (tool list page)
+ * Calls custom alt_count_tools to show count of tools that are in the "Reviewed - Publish" tool_entry_state.
+ * The url toolsByTerm to display on the page is a view that takes a termID as an arguement.
+ * 
+ * @return array containing category links
+ */
+ 
+/* Replaced by a view.
+function alt_get_tools_by_category(){
+	
+	//return alt_test_list();
+	
+	$vid = 1; //Tool Category vocabulary 
+	$terms = taxonomy_get_tree($vid);  //get the tree
+	$list = array(); //return list of terms as links with count of tool nodes
+	$tree = false; //a single root term and it's associated children.
+	
+	foreach ($terms as $term) {
+		//$tcount = alt_term_count_nodes($term->tid);
+		
+		$tcount = alt_count_tools($term->tid, 'tool');
+		$display_count = ($tcount) ? $tcount : 0;
+		
+		if ($term-> depth > 0) {
+			if ($display_count > 0) {
+				$tree['children'][] =  l ($term-> name. "( " . $display_count . " )", 'toolsByTerm/'.$term->tid );
+			}
+			else {
+				$tree['children'][] =  l ($term-> name, 'toolsByTerm/'.$term->tid );
+			}
+		}
+		else {
+
+			//add last term tree to list
+			if ($tree) {
+				$list[] = $tree;
+			}
+			//build new term tree
+			$tree = array();
+			//clicking the parent does not work at this time.
+			//$tree['data'] = l ($term-> name. "( " . $display_count . " )", 'taxonomy/term/'.$term->tid );
+			$tree['data'] = $term-> name. "( " . $display_count . " )";
+			$tree['children'] = array(); 			
+		}
+	} 
+	return $list;	
+}
+*/
+
+/**
+ * Counts the tool nodes that have a tool entry state of Reviewed - Publish.
+ * Customized existing method taxonomy_term_count_nodes()
+ * @param $tid
+ * @param $type
+ * @return unknown_type
+ */
+function alt_count_tools($tid, $type = 0) {
+  static $count;
+
+  if (!isset($count[$type])) {
+    // $type == 0 always evaluates TRUE if $type is a string
+    if (is_numeric($type)) {
+      $result = db_query(db_rewrite_sql('SELECT t.tid, COUNT(n.nid) AS c FROM {term_node} t INNER JOIN {node} n ON t.vid = n.vid WHERE n.status = 1 GROUP BY t.tid'));
+    }
+    else {
+      $result = db_query(db_rewrite_sql("SELECT t.tid, COUNT(n.nid) AS c FROM {term_node} t INNER JOIN {node} n ON t.vid = n.vid INNER JOIN {content_type_tool} cck ON n.vid = cck.vid WHERE n.status = 1 AND n.type = '%s' AND cck.field_tool_review_status_value = 'Reviewed - Publish' GROUP BY t.tid"), $type);
+    }
+    $count[$type] = array();
+    while ($term = db_fetch_object($result)) {
+      $count[$type][$term->tid] = $term->c;
+    }
+  }
+  $children_count = 0;
+  foreach (_taxonomy_term_children($tid) as $c) {
+    $children_count += alt_count_tools($c, $type);
+  }
+  return $children_count + (isset($count[$type][$tid]) ? $count[$type][$tid] : 0);
+}
+
+
+/*
+ * Before change to view and custom count.
+function alt_get_tools_by_category_old(){
+	
+	//return alt_test_list();
+	
+	$vid = 1; //Tool Category vocabulary 
+	$terms = taxonomy_get_tree($vid);  //get the tree
+	$list = array(); //return list of terms as links with count of tool nodes
+	$tree = false; //a single root term and it's associated children.
+	
+	foreach ($terms as $term) {
+		//$tcount = alt_term_count_nodes($term->tid);
+		
+		$tcount = taxonomy_term_count_nodes($term->tid, 'tool');
+		$display_count = ($tcount) ? $tcount : 0;
+		
+		if ($term-> depth > 0) {
+			$tree['children'][] =  l ($term-> name. "( " . $display_count . " )", 'taxonomy/term/'.$term->tid );
+		}
+		else {
+			//add last term tree to list
+			if ($tree) {
+				$list[] = $tree;
+			}
+			//build new term tree
+			$tree = array();
+			//clicking the parent does not work at this time.
+			//$tree['data'] = l ($term-> name. "( " . $display_count . " )", 'taxonomy/term/'.$term->tid );
+			$tree['data'] = $term-> name. "( " . $display_count . " )";
+			$tree['children'] = array(); 			
+		}
+	} 
+	return $list;	
+}
+*/
+
+/**
+ * Implementaiton of hook_link_alter
+ * When viewing a tool node, change the comment add title.
+ * @param $links
+ * @param $node
+ * @param $comment
+ * @return unknown_type
+ */
+function alt_link_alter(&$links, $node, $comment = NULL) {
+	//dsm('start link alter');
+	//dsm($links);
+	//dsm($node);
+	if ($node->type == 'tool' && !empty($links)) {
+		
+		//change the add commment title
+		//hide add comment if user has alreaady posted one for the tool node.
+		if (!empty($links['comment_add']) ) {
+			$links['comment_add']['title'] = 'Tell us how this tool worked for you';
+		}
+		
+		//remove the n comments link from the tool teaser page
+		if (!empty($links['comment_comments']) ){
+			unset($links['comment_comments']);	
+		}
+	}
+		
+}
+
+function alt_get_tool_evaluations() {
+ // dsm('start get_tool_reviews');
+	//db_query will use the db connection info in settings.php. It is possible to connect to several
+	//databases by adding entries into settings.php.
+	$sql = "SELECT tool_node.title as tool_title,
+   node_data_field_tool_review_tool_nid.field_tool_review_tool_nid_value AS tool_review_tool_nid,
+   users.name AS users_name,
+   users.uid AS users_uid,
+   node.created AS node_created,
+   node_data_field_tool_review_tool_nid.field_tool_review_options_value AS tool_review_option,
+   node_data_field_tool_review_tool_nid.field_tool_review_comment_value AS tool_review_comment
+ FROM node node
+
+ LEFT JOIN content_type_tool_review node_data_field_tool_review_tool_nid ON node.vid = node_data_field_tool_review_tool_nid.vid
+
+ LEFT JOIN node tool_node ON tool_node.nid = node_data_field_tool_review_tool_nid.field_tool_review_tool_nid_value
+
+ LEFT JOIN content_type_tool tool ON tool.nid = node_data_field_tool_review_tool_nid.field_tool_review_tool_nid_value and
+    (tool.field_tool_review_status_value = 'Submitted for Review' or tool.field_tool_review_status_value = 'Resubmitted for Review')
+
+ INNER JOIN users users ON node.uid = users.uid
+
+ WHERE (node.status <> 0) AND (node.type in ('tool_review')) 
+ group by node.nid order by tool_node.title asc;
+	";
+	/* working code 
+	$result = db_query($sql);	
+	$rows = array();	
+	$i = 0;
+	//multip row result processing
+	while ($data = db_fetch_array($result)){
+		$rows[$i] = $data;
+		$i++;
+	}
+	return $rows; 
+	 
+	 */
+	
+	//format_date($timestamp, $type = 'medium'
+	
+	$result = db_query($sql);	
+	$rows = array();	
+	$i = 0;
+	//multip row result processing
+	while ($obj = db_fetch_object($result)){
+		
+		$data = array(
+			l($obj->tool_title,'node/'.$obj->tool_review_tool_nid),
+			l($obj->users_name,'user/'.$obj->users_uid),
+			format_date($obj->node_created, 'custom', 'm-d-Y', 0),
+			$obj->tool_review_option,
+			$obj->tool_review_comment
+			
+		);
+		$rows[$i] = $data;
+		$i++;
+	}
+	return $rows; 
+	
+}
+
+
+/**
+ * Implementation of hook_block().
+ */
+function alt_block($op = 'list', $delta = 0, $edit = array()) {
+
+   switch ($op) {
+    case 'list':
+      $blocks = array();
+      foreach (node_get_types('names') as $type => $name) {
+        if (variable_get('formblock_expose_'. $type, 0)) {
+          $blocks[$type] = array(
+            'info' => t('ALT Custom @name form block', array('@name' => $name)),
+          );
+        }
+      }
+      return $blocks;
+	  
+    case 'view':
+      switch ($delta) {
+        default:
+          return alt_get_block($delta);
+    }
+  }
+}
+
+/**
+ * Generate a block containing a node entry form.
+ */
+function alt_get_block($type) {
+  //drupal_set_message('in alt_get_block');
+
+
+  if (node_access('create', $type)) {
+  	
+    module_load_include('inc', 'node', 'node.pages');
+
+    $tool_review = alt_get_tool_review();
+    //dsm("tool review for user");
+    //dsm($tool_review);
+    
+    
+    if ($tool_review){
+    	//dsm("tool_review exists");
+    	// if type is tool_review and tool review record exists for user exists
+  		//node load - nid?
+  		//node_page_edit(node) - node.pages.inc
+  		$node = node_load($tool_review->nid);
+  		$form = node_page_edit($node);
+  	}
+  	else {
+  			//dsm("new tool_review");
+  	//else add node 
+    // Include page handler for node_add()
+    // Note title before rendering of form.
+    	$title = drupal_get_title();
+    	$form = node_add($type);
+  	}
+  	
+    $types = node_get_types('names');
+    // Restore title, which will have been overridden.
+    drupal_set_title($title);
+    return array(
+      'subject' => t('@type form', array('@type' => $types[$type])),
+      'content' => $form,
+    );
+  }
+}
+
+
+

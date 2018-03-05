@@ -1,0 +1,316 @@
+<?php
+// $Id$
+//no closing php marker because
+//we have no output
+
+/**
+ * @file
+ * Main module file for Stalker module.
+ */
+
+/**
+ * Implementation of hook_perm()
+ * 
+ * 1) By putting the table name in curly brackets, the table name prefix in settings.php is
+ * automatically added to this table name value.
+ * 2) use prepared statements to do some sanity checkking on the values passed to db_query
+ * %d php int, %f float, '%s' string
+ * 
+ * This function takes 0 arguments
+ */
+
+function stalker_perm() {
+	return array('view stalkers');
+}
+
+/**
+ * Get the profile hit count for a user.
+ * 
+ * @param $stalker_uid
+ * @param $profile_uid
+ * @return unknown_type
+ */
+function stalker_get_count($stalker_uid, $profile_uid){
+	//db_query will use the db connection info in settings.php. It is possible to connect to several
+	//databases by adding entries into settings.php.
+	$result = db_query("SELECT view_count FROM {stalker} WHERE stalker_uid = %d and profile_uid = %d",
+	$stalker_uid, $profile_uid);
+	
+	//multip row result processing
+	//while ($data = db_fetch_object($result)){
+	//}
+	
+	//single row result returned
+	return (int) db_result($result); //typecast return value so if a string is
+	//ever returned due to changes..., 0 would be returned.
+}
+
+/**
+ * 
+ * 
+ * @param $view_count
+ * @param $stalker_uid
+ * @param $profile_uid
+ * @return unknown_type
+ */
+function stalker_set_count($view_count, $stalker_uid, $profile_uid) {
+	//try to update record 1st, if zero, then insert.
+	
+	//ins, upd, select with dbquery
+	$result = db_query("UPDATE {stalker} SET view_count= %d, last_stalked= %d WHERE stalker_uid = %d and profile_uid = %d ", 
+	$view_count, time(), $stalker_uid, $profile_uid);
+	//last query run is used by this function
+	if (db_affected_rows()==0){
+		db_query("INSERT INTO {stalker} (stalker_uid, profile_uid, view_count, last_stalked) VALUES (%d,%d,%d,%d)",
+		$stalker_uid,$profile_uid,$view_count, time());
+	}
+}
+
+/**
+ * Implementation of hook_user()
+ * 
+ * $op lists out every event this funtion can respond to.
+ * $account - the user info you are viewing, not the user logged in.
+ * store a counter in session for number of views
+ */
+function stalker_user($op, &$edit, &$account, $category=NULL) {
+	
+	//Drupal (as part of bootstrap process) makes a global $user
+	//available for the currently logged in user.
+	global $user; //anonoymous user or user logged in.
+	
+	switch($op){
+		case 'view': 
+			
+			if ( ($user->uid != $account->uid) || variable_get('stalker_narcissism', FALSE) ) {
+				//update the counter for how many times we've viewed this pageg
+				//$_SESSION['stalker'][$account->uid]++;
+				$view_count = stalker_get_count($user->uid, $account->uid);
+				$view_count++;
+				
+				stalker_set_count($view_count, $user->uid, $account->uid);
+				
+			}
+			//show a list of stalkers on the profile page
+			//check if the current user has view stalkers permission
+			if (user_access('view stalkers')){
+
+				//we moved our themeable content to the modules defalt theme_stalker_user method
+				//t() translate function for localization
+				//$content = t('You have viewed this profile %num times', array('%num' => $_SESSION['stalker'][$account->uid]));
+				
+				$content = theme('stalker_user', $account);
+				
+				//Here is our first peek at a "renderable array".
+				//content is s structured array of content we want to display that
+				//is passed around for other modules to order, change or manipulate the way
+				//it is going to be viewed. 
+				$account->content['stalker'] = array (
+					'#type' => 'user_profile_item', //the template being used
+					'#title' => t('Profile hits'), //title value passed into template
+					'#value' => $content, //value passed to template
+					'#weight' => 10, //where to display on page
+				);
+			}
+			
+			break;
+	}
+	
+	//this line is not needed because $account is passed in by reference
+	//so when we added content to it, it was changed in all places.
+	//return $account;
+}
+
+/**
+ *
+ *implementation of hook_theme()
+ *
+ *hook_theme is required to register out themeable (overridable) content
+ *with drupal's theme system.
+ *
+ * stalker_user is the only content element we have that is themeable in this module.
+ * but we could have more
+ */
+ 
+function stalker_theme($account) {
+
+	return array (
+		'stalker_user' => array (
+		'arguments' => array('account' => NULL),
+		)	
+	);
+}
+
+/**
+ * 
+ * Default theme output for "stalker_user"
+ * Any time we create themeable output, we must provide the default 
+ * implementation (that can be later overridden by themers).
+ * 
+ * @param $account
+ * @return unknown_type
+ */
+function theme_stalker_user($account) {
+	global $user;
+	return t('You have viewed this profile %num times', array('%num' => stalker_get_count($user->uid, $account->uid)));
+}
+/**
+ * 
+ * implementation of hook_menue
+ * When invoke-all is called, this function is executed and our contents are returned.
+ * and cached.
+ * 
+ * @return unknown_type
+ */
+function stalker_menu() {
+	$items = array();
+	//settings page in Site Config
+	//key is page url
+	$items['admin/settings/stalker'] = array(
+		'title'=> 'Stalker Settings',
+		'description' => 'Configuration options for the stalker module',
+		'page callback' => 'stalker_admin_settings',
+		'access callback' => 'user_access', //true will give access to everyone
+		'access arguments' => array('Administer Site configuration')
+	);
+	
+	//arg(0) is user arg(1) is %user arg(2) is stalkers.
+	//so we pass 1 as the access argument (the user object loaded for the profile page we are viewing)
+	//menu_local_task (see hook_menu). Make the menu item local to the page and a tab item in this pages case.
+	$items['user/%user/stalkers'] = array(
+		'title' => 'Top Stalkers',
+		'page callback' => 'stalker_user_page',
+		'page arguments'=> array(1),
+		'access callback' => 'stalker_user_access',
+		'access arguments' => array(1),
+		'file' => 'stalker.pages.inc',
+		'type' => MENU_LOCAL_TASK,
+		'weight' => -10,
+	);
+	
+	//dsm('test');
+	return $items;
+}
+
+
+function stalker_form_alter(&$form, &$form_state, $form_id) {
+	//goto the page you want to alter and this will show you the form id.
+	//dsm($form_id);
+	if ($form_id == "user_admin_settings"){
+		
+	//how does the value get saved? Does the form system save it by the element name
+	//by default into the variable table.
+		
+	$form['stalker_threshold'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Stalker threshold'),
+		'#description' => t('Users who view the profile fewer times than this number will not be listed as stalkers.'),
+		'#default_value' => variable_get('stalker_threshold', 1), //1 is the default if not set.
+		'#required' => TRUE,
+		'#weight' => -10,
+	);
+	$form['#validate'][] = 'stalker_settings_form_validate';
+		
+	}
+	
+}
+
+/**
+ * stalker_admin_settings callback that returns text to display on the page.
+ * @return unknown_type
+ */
+function stalker_admin_settings() {
+	return drupal_get_form('stalker_settings_form');
+}
+
+function stalker_settings_form() {
+	$form = array();
+	
+	$form['stalker_threshold'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Stalker threshold'),
+		'#description' => t('Users who view the profile fewer times than this number will not be listed as stalkers.'),
+		'#default_value' => variable_get('stalker_threshold', 1), //1 is the default if not set.
+		'#required' => TRUE,
+	);
+	
+	$form['modes'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Modes of operations'),
+	);
+	
+	$form['modes']['stalker_identity'] = array(
+		'#type'=> 'checkbox',
+		'#title'=> t('Secret admirer mode'),
+		'#description'=> t('Show the number of times users have visited, but hide their identities.'),
+		'#default_value'=> variable_get('stalker_identity', FALSE),
+	);
+	
+	$form['modes']['stalker_narcissism'] = array(
+		'#type'=> 'checkbox',
+		'#title'=> t('Allow narcissism'),
+		'#description'=> t('Show the number of times users view their own profile.'),
+		'#default_value'=> variable_get('stalker_narcissism', FALSE),
+	);
+
+	$form['submit'] = array (
+		'#type' => 'submit',
+		'#value' => t('Save settings'),
+	);
+	
+	
+	return $form;
+}
+
+/* formid_validate */
+/**
+ * 
+ * @param $form - passed by reference
+ * @param $form_state
+ * @return unknown_type
+ */
+function stalker_settings_form_validate(&$form, &$form_state) {
+	//dsm($form_state);
+	if ( !is_numeric($form_state['values']['stalker_threshold']) ){
+		//stop the submit and show the error
+		form_set_error('stalker_threshold', t('You must enter a number for the threshold.'));		
+	}
+	elseif ( $form_state['values']['stalker_threshold'] < 1 ){
+		form_set_error('stalker_threshold', t('The stalker threshold must be greater than zero.'));	
+	}
+}
+
+/* formid_submit */
+/**
+ * Save, email, ....
+ * @param $form
+ * @param $form_state
+ * @return unknown_type
+ */
+function stalker_settings_form_submit(&$form, &$form_state) {
+	//Validation has already been handled
+	variable_set('stalker_threshold', $form_state['values']['stalker_threshold']);
+	variable_set('stalker_identity', $form_state['values']['stalker_identity']);
+	variable_set('stalker_narcissism', $form_state['values']['stalker_narcissism']);
+	
+}
+
+/**
+ * hook_user_access implementation
+ * This function must be inside the .module file. It is called before external files are loaded.
+ * We put page callback functions in external files because they are not loaded until the page
+ * is accessed. This helps reduce the memory footprint.
+ * 
+ * @param $account
+ * @return unknown_type
+ */
+function stalker_user_access($account) {
+	global $user;
+	
+	if ($user->uid == $account->uid || user_access('view stalkers')){
+		return TRUE;	
+	}
+	
+	return FALSE;
+}
+
