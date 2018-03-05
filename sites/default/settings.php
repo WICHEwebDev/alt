@@ -135,7 +135,7 @@ $update_free_access = FALSE;
  */
 
 
-$base_url = 'http://alt.wiche.edu';  // NO trailing slash!
+/*$base_url = 'http://alt.wiche.edu';  // NO trailing slash!*/
 
 /**
  * PHP settings:
