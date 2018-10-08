@@ -3,6 +3,9 @@ FROM ${CLI_IMAGE} as cli
 
 FROM amazeeio/nginx-drupal
 
+COPY .lagoon/drupal.conf /etc/nginx/conf.d/app.conf
+COPY .lagoon/map.conf /etc/nginx/conf.d/0-map.conf
+
 COPY --from=cli /app /app
 
 ENV WEBROOT=
